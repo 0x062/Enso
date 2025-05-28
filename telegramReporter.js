@@ -86,7 +86,7 @@ async function sendTelegramReport(reportData, successCount, failCount) {
     await axios.post(telegramApiUrl, {
       chat_id: TELEGRAM_CHAT_ID,
       text: message,
-+     parse_mode: 'HTML', // <-- GANTI KE HTML
+      parse_mode: 'HTML', // <-- GANTI KE HTML
     });
     spinner.succeed(chalk.green(' ┊ ✓ Laporan berhasil dikirim ke Telegram!'));
   } catch (err) {
