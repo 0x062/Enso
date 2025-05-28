@@ -610,15 +610,12 @@ async function completeProtocol(address, protocolId, protocolName, zealyUserId, 
     }
 }
 
-
-// --- Fungsi Proses Akun (Dengan Perbaikan failCount) ---
-
 async function processAccounts(accounts, messages, accountProxies, noType) {
   const INTERACTIONS = 5;
   const DEFIDEX_LIMIT = 5;
   let successCount = 0;
   let failCount = 0;
-  let totalFailedChats = 0; // Ganti nama agar lebih jelas
+  let totalFailedChats = 0;
   let totalSuccessfulDexes = 0;
   let totalFailedDexes = 0;
   let totalSuccessfulCampaigns = 0;
@@ -635,12 +632,8 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
     displayHeader(`═════[ Akun ${i + 1}/${accounts.length} @ ${getTimestamp()} ]═════`, chalk.blue);
 
     let ip = 'Unknown';
-    try {
-        ip = await getPublicIP(proxy);
-    } catch (err) {
-        console.log(chalk.red(` ┊ ✗ Gagal mendapatkan IP untuk akun ${shortAddress}. Melanjutkan...`));
-    }
-
+    try { ip = await getPublicIP(proxy); }
+    catch (err) { console.log(chalk.red(` ┊ ✗ Gagal mendapatkan IP. Melanjutkan...`)); }
 
     let accountSuccess = true;
     let partialFailure = false;
@@ -650,7 +643,7 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
       const nonce = await getNonce(proxy);
       const { message, signature } = await signMessage(account.privateKey, nonce, account.address);
       const { token } = await verify(message, signature, account.address, proxy);
-      await getAccountInfo(token, account.address, proxy); // Tidak perlu simpan info jika tidak dipakai
+      await getAccountInfo(token, account.address, proxy);
 
       // --- Proses Chat ---
       console.log(chalk.magentaBright(' ┊ ┌── Proses Chat ──'));
@@ -660,11 +653,11 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
         const query = messages[Math.floor(Math.random() * messages.length)];
         console.log(chalk.white(` ┊ │ Pesan: ${query}`));
         const response = await performChat(token, query, account.address, messages, proxy);
-        if (response.startsWith('Gagal')) {
+        if (response.startsWith('Gagal') || response.includes("too many requests")) { // Tambah cek 'too many'
           failedChats++;
           partialFailure = true;
         }
-        await typeText(response, response.startsWith('Gagal') ? chalk.red : chalk.green, noType);
+        await typeText(response, (response.startsWith('Gagal') || response.includes("too many requests")) ? chalk.red : chalk.green, noType);
         await sleep(1000);
         console.log(chalk.yellow(' ┊ └──'));
         await sleep(3000);
@@ -681,15 +674,12 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
         const projectSlug = generateProjectSlug();
         console.log(chalk.white(` ┊ │ Project Slug: ${projectSlug}`));
         const success = await createDefiDex(projectSlug, account.address, account.zealyUserId, proxy);
-        if (success) {
-          successfulDexes++;
-        } else {
+        if (success) { successfulDexes++; }
+        else {
           failedDexes++;
           partialFailure = true;
-          if (!success) { // Jika gagal (termasuk batas harian), hentikan loop
-              console.log(chalk.yellow(' ┊ │ Menghentikan DeFiDex karena gagal atau batas harian.'));
-              break;
-          }
+          console.log(chalk.yellow(' ┊ │ Menghentikan DeFiDex karena gagal atau batas harian.'));
+          break;
         }
         await sleep(1000);
       }
@@ -697,95 +687,73 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
       totalFailedDexes += failedDexes;
       console.log(chalk.yellow(' ┊ └──'));
 
-      // --- Proses Campaign ---
-      console.log(chalk.magentaBright(' ┊ ┌── Proses Completing Campaigns ──'));
-      const campaigns = await getCampaigns(account.zealyUserId, proxy);
-      if (campaigns.length === 0) {
-        console.log(chalk.yellow(' ┊ │ Tidak ada campaign atau gagal mengambil.'));
-        partialFailure = true; // Tandai sebagai partial failure jika tidak bisa ambil
-      } else {
-        const pendingCampaigns = campaigns.filter(c => !c.visited && !c.pointsAwarded);
-        if (pendingCampaigns.length === 0) {
-          console.log(chalk.green(' ┊ │ Semua campaign sudah selesai!'));
+      // --- Proses Campaign & Protocol ---
+      // ... (Kode ini sepertinya sudah benar, kita anggap sama) ...
+        console.log(chalk.magentaBright(' ┊ ┌── Proses Completing Campaigns ──'));
+        const campaigns = await getCampaigns(account.zealyUserId, proxy);
+        if (campaigns.length === 0) { console.log(chalk.yellow(' ┊ │ Tidak ada campaign atau gagal mengambil.')); partialFailure = true;
         } else {
-          console.log(chalk.white(` ┊ │ ${pendingCampaigns.length} campaign belum dikerjakan ditemukan`));
-          const spinner = ora({ text: chalk.cyan(` ┊ │ Memproses campaign: 0/${pendingCampaigns.length}...`), prefixText: '', spinner: 'bouncingBar' }).start();
-          let successfulCampaigns = 0;
-          for (let j = 0; j < pendingCampaigns.length; j++) {
-            const campaign = pendingCampaigns[j];
-            const success = await completeCampaign(account.address, campaign.id, campaign.name, account.zealyUserId, proxy, 0, spinner);
-            if (success) successfulCampaigns++; else { totalFailedCampaigns++; partialFailure = true; }
-            spinner.text = chalk.cyan(` ┊ │ Memproses campaign: ${j + 1}/${pendingCampaigns.length}...`);
-            await sleep(1000);
-          }
-          spinner.succeed(chalk.green(` ┊ ✓ ${successfulCampaigns} dari ${pendingCampaigns.length} campaign selesai`));
-          totalSuccessfulCampaigns += successfulCampaigns;
+            const pendingCampaigns = campaigns.filter(c => !c.visited && !c.pointsAwarded);
+            if (pendingCampaigns.length === 0) { console.log(chalk.green(' ┊ │ Semua campaign sudah selesai!'));
+            } else {
+                console.log(chalk.white(` ┊ │ ${pendingCampaigns.length} campaign belum dikerjakan ditemukan`));
+                const spinner = ora({ text: chalk.cyan(` ┊ │ Memproses campaign: 0/${pendingCampaigns.length}...`), prefixText: '', spinner: 'bouncingBar' }).start();
+                let successfulCampaigns = 0;
+                for (let j = 0; j < pendingCampaigns.length; j++) {
+                    const campaign = pendingCampaigns[j];
+                    const success = await completeCampaign(account.address, campaign.id, campaign.name, account.zealyUserId, proxy, 0, spinner);
+                    if (success) successfulCampaigns++; else { totalFailedCampaigns++; partialFailure = true; }
+                    spinner.text = chalk.cyan(` ┊ │ Memproses campaign: ${j + 1}/${pendingCampaigns.length}...`);
+                    await sleep(1000);
+                }
+                spinner.succeed(chalk.green(` ┊ ✓ ${successfulCampaigns} dari ${pendingCampaigns.length} campaign selesai`));
+                totalSuccessfulCampaigns += successfulCampaigns;
+            }
         }
-      }
-      console.log(chalk.yellow(' ┊ └──'));
+        console.log(chalk.yellow(' ┊ └──'));
+        console.log(chalk.magentaBright(' ┊ ┌── Proses Completing Protocols ──'));
+        const protocols = await getProtocols(account.zealyUserId, proxy);
+        if (protocols.length === 0) { console.log(chalk.yellow(' ┊ │ Tidak ada protocol atau gagal mengambil.')); partialFailure = true;
+        } else {
+            const pendingProtocols = protocols.filter(p => !p.visited && !p.pointsAwarded);
+            if (pendingProtocols.length === 0) { console.log(chalk.green(' ┊ │ Semua protocols sudah selesai!'));
+            } else {
+                console.log(chalk.white(` ┊ │ ${pendingProtocols.length} protocols belum dikerjakan ditemukan`));
+                const spinner = ora({ text: chalk.cyan(` ┊ │ Memproses protocols: 0/${pendingProtocols.length}...`), prefixText: '', spinner: 'bouncingBar' }).start();
+                let successfulProtocols = 0;
+                for (let j = 0; j < pendingProtocols.length; j++) {
+                    const protocol = pendingProtocols[j];
+                    const success = await completeProtocol(account.address, protocol.id, protocol.name, account.zealyUserId, proxy, 0, spinner);
+                    if (success) successfulProtocols++; else { totalFailedProtocols++; partialFailure = true; }
+                    spinner.text = chalk.cyan(` ┊ │ Memproses protocols: ${j + 1}/${pendingProtocols.length}...`);
+                    await sleep(1000);
+                }
+                spinner.succeed(chalk.green(` ┊ ✓ ${successfulProtocols} dari ${pendingProtocols.length} protocols selesai`));
+                totalSuccessfulProtocols += successfulProtocols;
+            }
+        }
+        console.log(chalk.yellow(' ┊ └──'));
 
 
-      // --- Proses Protocol ---
-      console.log(chalk.magentaBright(' ┊ ┌── Proses Completing Protocols ──'));
-      const protocols = await getProtocols(account.zealyUserId, proxy);
-      if (protocols.length === 0) {
-          console.log(chalk.yellow(' ┊ │ Tidak ada protocol atau gagal mengambil.'));
-          partialFailure = true;
-      } else {
-          const pendingProtocols = protocols.filter(p => !p.visited && !p.pointsAwarded);
-          if (pendingProtocols.length === 0) {
-              console.log(chalk.green(' ┊ │ Semua protocols sudah selesai!'));
-          } else {
-              console.log(chalk.white(` ┊ │ ${pendingProtocols.length} protocols belum dikerjakan ditemukan`));
-              const spinner = ora({ text: chalk.cyan(` ┊ │ Memproses protocols: 0/${pendingProtocols.length}...`), prefixText: '', spinner: 'bouncingBar' }).start();
-              let successfulProtocols = 0;
-              for (let j = 0; j < pendingProtocols.length; j++) {
-                  const protocol = pendingProtocols[j];
-                  const success = await completeProtocol(account.address, protocol.id, protocol.name, account.zealyUserId, proxy, 0, spinner);
-                  if (success) successfulProtocols++; else { totalFailedProtocols++; partialFailure = true; }
-                  spinner.text = chalk.cyan(` ┊ │ Memproses protocols: ${j + 1}/${pendingProtocols.length}...`);
-                  await sleep(1000);
-              }
-              spinner.succeed(chalk.green(` ┊ ✓ ${successfulProtocols} dari ${pendingProtocols.length} protocols selesai`));
-              totalSuccessfulProtocols += successfulProtocols;
-          }
-      }
-      console.log(chalk.yellow(' ┊ └──'));
-      
       if (partialFailure) currentStatus = 'Parsial';
-      // --- Info User Akhir ---
       const userInfo = await getUserInfo(account.zealyUserId, proxy);
       console.log(chalk.yellow(' ┊ ┌── Ringkasan User ──'));
       console.log(chalk.white(` ┊ │ Username: ${userInfo.name}`));
       console.log(chalk.white(` ┊ │ User Address: ${userInfo.connectedWallet}`));
       console.log(chalk.white(` ┊ │ Total XP: ${userInfo.xp}`));
       console.log(chalk.yellow(' ┊ └──'));
-      userInfoResults.push({
-        name: userInfo.name,
-        address: account.address,
-        xp: userInfo.xp,
-        status: currentStatus
-      });
+      userInfoResults.push({ name: userInfo.name, address: account.address, xp: userInfo.xp, status: currentStatus });
 
     } catch (err) {
       console.log(chalk.red(` ┊ ✗ Error Utama pada Akun ${shortAddress}: ${err.message}`));
-      console.error(err.stack); // Cetak stack untuk debug
+      // console.error(err.stack); // Bisa diaktifkan jika perlu debug
       accountSuccess = false;
       currentStatus = 'Gagal';
-      userInfoResults.push({
-        name: 'Error',
-        address: account.address,
-        xp: 'Error',
-        status: currentStatus
-      });
+      userInfoResults.push({ name: 'Error', address: account.address, xp: 'Error', status: currentStatus });
     }
 
-    // Perhitungan Sukses/Gagal (Sudah diperbaiki)
-    if (accountSuccess && !partialFailure) {
-      successCount++;
-    } else {
-      failCount++;
-    }
+    if (accountSuccess && !partialFailure) { successCount++; }
+    else { failCount++; }
     console.log(chalk.gray(' ┊ ══════════════════════════════════════'));
   }
 
@@ -796,15 +764,13 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
   if (totalFailedCampaigns > 0) console.log(chalk.yellow(` ┊ ⚠️ ${totalFailedCampaigns} campaign gagal (total)`));
   if (totalFailedProtocols > 0) console.log(chalk.yellow(` ┊ ⚠️ ${totalFailedProtocols} protocols gagal (total)`));
 
-  // Jika ada kegagalan sama sekali, lempar error agar 'main' tahu
+  // KEMBALIKAN HASILNYA, TANPA 'IF', TANPA 'THROW'
   return { reportData: userInfoResults, successCount, failCount };
 }
 
-// --- Fungsi Main (Cron-Friendly) ---
-
 async function main() {
   console.log(chalk.blue(`\n--- [${getTimestamp()}] Memulai Eksekusi CRON Job Enso ---`));
-  displayBanner(); // Pastikan fungsi displayBanner ada di skripmu
+  displayBanner();
 
   const noType = true;
   let accounts = [];
@@ -830,7 +796,6 @@ async function main() {
     } catch (err) {
       throw new Error(`Gagal membaca/memproses accounts.txt: ${err.message}`);
     }
-
     try {
       const msgData = await fs.readFile('pesan.txt', 'utf8');
       messages = msgData.split('\n').filter(line => line.trim() !== '');
@@ -839,19 +804,12 @@ async function main() {
     } catch (err) {
       throw new Error(`Gagal membaca/memproses pesan.txt: ${err.message}`);
     }
-
     try {
       const proxyData = await fs.readFile('proxy.txt', 'utf8');
       proxies = proxyData.split('\n').filter(line => line.trim() !== '');
-      if (proxies.length > 0) {
-        console.log(chalk.green(` ┊ ✓ ${proxies.length} proxy berhasil dimuat. Proxy akan digunakan.`));
-      } else {
-        console.log(chalk.yellow(' ┊ ⚠️ File proxy.txt kosong. Berjalan tanpa proxy.'));
-      }
-    } catch (err) {
-      console.log(chalk.yellow(' ┊ ⚠️ File proxy.txt tidak ditemukan. Berjalan tanpa proxy.'));
-    }
-
+      if (proxies.length > 0) { console.log(chalk.green(` ┊ ✓ ${proxies.length} proxy berhasil dimuat.`));
+      } else { console.log(chalk.yellow(' ┊ ⚠️ File proxy.txt kosong. Berjalan tanpa proxy.')); }
+    } catch (err) { console.log(chalk.yellow(' ┊ ⚠️ File proxy.txt tidak ditemukan. Berjalan tanpa proxy.')); }
     accountProxies = accounts.map((_, index) => {
       return proxies.length > 0 ? proxies[index % proxies.length] : null;
     });
@@ -861,15 +819,15 @@ async function main() {
     const { reportData, successCount, failCount } = await processAccounts(accounts, messages, accountProxies, noType);
 
     // ---- Bagian 3: Mengirim Laporan ----
+    console.log(chalk.magenta('DEBUG: Selesai processAccounts. Memanggil sendTelegramReport...')); // DEBUG LOG
     await sendTelegramReport(reportData, successCount, failCount);
+    console.log(chalk.magenta('DEBUG: Selesai sendTelegramReport. Mengecek failCount...')); // DEBUG LOG
 
     // ---- Bagian 4: Menentukan Status Akhir & Keluar ----
     if (failCount > 0) {
-      // Jika ada gagal, lempar error agar ditangkap blok 'catch'.
       throw new Error(`${failCount} akun mengalami kegagalan atau kegagalan parsial.`);
     }
 
-    // Jika tidak ada yang gagal, log sukses dan keluar dengan kode 0.
     console.log(chalk.green(`--- [${getTimestamp()}] Eksekusi CRON Job Enso Berhasil ---`));
     process.exit(0);
 
@@ -877,10 +835,7 @@ async function main() {
     // ---- Bagian 5: Menangani Semua Error ----
     console.error(chalk.red(`\n--- [${getTimestamp()}] !!! Eksekusi CRON Job Selesai dengan Error !!! ---`));
     console.error(chalk.red(` ┊ ✗ Error: ${err.message}`));
-    console.error(err.stack); // Cetak stack trace untuk debug
-    process.exit(1); // Keluar dengan kode 1 (gagal).
+    console.error(err.stack);
+    process.exit(1);
   }
 }
-
-// Jangan lupa untuk tetap memanggil main() di akhir file enso_bot.js
-main();
