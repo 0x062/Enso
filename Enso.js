@@ -7,6 +7,7 @@ import ora from 'ora';
 import chalk from 'chalk';
 import moment from 'moment-timezone';
 import figlet from 'figlet';
+import { sendTelegramReport } from './telegramReporter.js';
 
 // --- Fungsi Utilitas & Tampilan ---
 
@@ -624,6 +625,7 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
   let totalFailedCampaigns = 0;
   let totalSuccessfulProtocols = 0;
   let totalFailedProtocols = 0;
+  let userInfoResults = [];
 
   for (let i = 0; i < accounts.length; i++) {
     const account = accounts[i];
@@ -642,6 +644,7 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
 
     let accountSuccess = true;
     let partialFailure = false;
+    let currentStatus = 'Sukses';
 
     try {
       const nonce = await getNonce(proxy);
@@ -748,8 +751,8 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
           }
       }
       console.log(chalk.yellow(' ┊ └──'));
-
-
+      
+      if (partialFailure) currentStatus = 'Parsial';
       // --- Info User Akhir ---
       const userInfo = await getUserInfo(account.zealyUserId, proxy);
       console.log(chalk.yellow(' ┊ ┌── Ringkasan User ──'));
@@ -757,11 +760,24 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
       console.log(chalk.white(` ┊ │ User Address: ${userInfo.connectedWallet}`));
       console.log(chalk.white(` ┊ │ Total XP: ${userInfo.xp}`));
       console.log(chalk.yellow(' ┊ └──'));
+      userInfoResults.push({
+        name: userInfo.name,
+        address: account.address,
+        xp: userInfo.xp,
+        status: currentStatus
+      });
 
     } catch (err) {
       console.log(chalk.red(` ┊ ✗ Error Utama pada Akun ${shortAddress}: ${err.message}`));
       console.error(err.stack); // Cetak stack untuk debug
       accountSuccess = false;
+      currentStatus = 'Gagal';
+      userInfoResults.push({
+        name: 'Error',
+        address: account.address,
+        xp: 'Error',
+        status: currentStatus
+      });
     }
 
     // Perhitungan Sukses/Gagal (Sudah diperbaiki)
@@ -782,7 +798,7 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
 
   // Jika ada kegagalan sama sekali, lempar error agar 'main' tahu
   if (failCount > 0) {
-      throw new Error(`${failCount} akun mengalami kegagalan atau kegagalan parsial.`);
+    return { reportData: userInfoResults, successCount, failCount };
   }
 }
 
@@ -790,7 +806,7 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
 
 async function main() {
   console.log(chalk.blue(`\n--- [${getTimestamp()}] Memulai Eksekusi CRON Job Enso ---`));
-  displayBanner();
+  displayBanner(); // Pastikan fungsi displayBanner ada di skripmu
 
   const noType = true;
   let accounts = [];
@@ -799,7 +815,7 @@ async function main() {
   let accountProxies = [];
 
   try {
-    // 1. Baca Akun (Wajib)
+    // ---- Bagian 1: Memuat Data ----
     try {
       const accountsData = await fs.readFile('accounts.txt', 'utf8');
       const lines = accountsData.split('\n').filter(line => line.trim() !== '');
@@ -817,7 +833,6 @@ async function main() {
       throw new Error(`Gagal membaca/memproses accounts.txt: ${err.message}`);
     }
 
-    // 2. Baca Pesan (Wajib)
     try {
       const msgData = await fs.readFile('pesan.txt', 'utf8');
       messages = msgData.split('\n').filter(line => line.trim() !== '');
@@ -827,7 +842,6 @@ async function main() {
       throw new Error(`Gagal membaca/memproses pesan.txt: ${err.message}`);
     }
 
-    // 3. Baca Proxy (Opsional)
     try {
       const proxyData = await fs.readFile('proxy.txt', 'utf8');
       proxies = proxyData.split('\n').filter(line => line.trim() !== '');
@@ -840,26 +854,35 @@ async function main() {
       console.log(chalk.yellow(' ┊ ⚠️ File proxy.txt tidak ditemukan. Berjalan tanpa proxy.'));
     }
 
-    // 4. Petakan Proxy ke Akun
     accountProxies = accounts.map((_, index) => {
       return proxies.length > 0 ? proxies[index % proxies.length] : null;
     });
 
-    // 5. Jalankan Proses Utama
-    await processAccounts(accounts, messages, accountProxies, noType);
+    // ---- Bagian 2: Menjalankan Proses & Menangkap Hasil ----
+    console.log(chalk.cyan(` ┊ ⚙️ Memulai proses akun...`));
+    const { reportData, successCount, failCount } = await processAccounts(accounts, messages, accountProxies, noType);
 
-    // 6. Jika semua berjalan lancar sampai sini
+    // ---- Bagian 3: Mengirim Laporan ----
+    await sendTelegramReport(reportData, successCount, failCount);
+
+    // ---- Bagian 4: Menentukan Status Akhir & Keluar ----
+    if (failCount > 0) {
+      // Jika ada gagal, lempar error agar ditangkap blok 'catch'.
+      throw new Error(`${failCount} akun mengalami kegagalan atau kegagalan parsial.`);
+    }
+
+    // Jika tidak ada yang gagal, log sukses dan keluar dengan kode 0.
     console.log(chalk.green(`--- [${getTimestamp()}] Eksekusi CRON Job Enso Berhasil ---`));
     process.exit(0);
 
   } catch (err) {
-    // Tangkap SEMUA error yang tidak tertangani
-    console.error(chalk.red(`\n--- [${getTimestamp()}] !!! Eksekusi CRON Job Gagal Total !!! ---`));
+    // ---- Bagian 5: Menangani Semua Error ----
+    console.error(chalk.red(`\n--- [${getTimestamp()}] !!! Eksekusi CRON Job Selesai dengan Error !!! ---`));
     console.error(chalk.red(` ┊ ✗ Error: ${err.message}`));
-    console.error(err.stack);
-    process.exit(1);
+    console.error(err.stack); // Cetak stack trace untuk debug
+    process.exit(1); // Keluar dengan kode 1 (gagal).
   }
 }
 
-// --- Panggil Fungsi Main ---
+// Jangan lupa untuk tetap memanggil main() di akhir file enso_bot.js
 main();
