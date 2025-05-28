@@ -797,9 +797,7 @@ async function processAccounts(accounts, messages, accountProxies, noType) {
   if (totalFailedProtocols > 0) console.log(chalk.yellow(` ┊ ⚠️ ${totalFailedProtocols} protocols gagal (total)`));
 
   // Jika ada kegagalan sama sekali, lempar error agar 'main' tahu
-  if (failCount > 0) {
-    return { reportData: userInfoResults, successCount, failCount };
-  }
+  return { reportData: userInfoResults, successCount, failCount };
 }
 
 // --- Fungsi Main (Cron-Friendly) ---
