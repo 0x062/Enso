@@ -60,7 +60,7 @@ async function sendTelegramReport(reportData, successCount, failCount) {
       reportData.forEach((info, index) => {
           const name = escapeHtml(info.name);
           const address = escapeHtml(info.address);
-          const xp = escapeHtml(info.xp);
+          const xp = escapeHtml(info.zealy_xp);
           const status = escapeHtml(info.status || 'N/A');
 
           message += `<b>Akun ${index + 1} (${status})</b>\n`;
