@@ -58,13 +58,14 @@ async function sendTelegramReport(reportData, successCount, failCount) {
       message += `Tidak ada data akun untuk dilaporkan.\n`;
   } else {
       reportData.forEach((info, index) => {
-          const name = escapeHtml(info.name);
+          const originalName = info.name || 'Unknown';
+          const displayableName = escapeHtml(shortenString(originalName, 2, 2));
           const address = escapeHtml(info.address);
           const xp = escapeHtml(info.zealy_xp);
           const status = escapeHtml(info.status || 'N/A');
 
           message += `<b>Akun ${index + 1} (${status})</b>\n`;
-          message += `  - Nama: <code>${name}</code>\n`;
+          message += `  - Username: <code>${displayableName}</code>\n`;
           message += `  - Alamat: <code>${address.slice(0, 8)}...${address.slice(-6)}</code>\n`;
           message += `  - XP: <code>${xp}</code>\n\n`;
       });
